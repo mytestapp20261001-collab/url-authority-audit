@@ -46,6 +46,25 @@ class AuditTests(unittest.TestCase):
         r = self.run_audit("https://faß.example")
         self.assertEqual(r["urls"][0]["host"], "fass.example")
         self.assertIn("unicode_idna_mapping", self.codes(r))
+    def test_unicode_hostname_before_lowercasing(self):
+        for suffix in ("", ":443", ":8443"):
+            with self.subTest(suffix=suffix):
+                r = self.run_audit("https://\u212a.example" + suffix + "/secret-path?secret-query#secret-fragment")
+                self.assertEqual(r["status"], "fail")
+                self.assertEqual(self.codes(r), ["unicode_idna_mapping"])
+                self.assertTrue(r["urls"][0]["parsed"])
+                self.assertEqual(r["urls"][0]["host"], "k.example")
+                self.assertNotIn("secret", json.dumps(r))
+    def test_unicode_outside_host_does_not_mark_host(self):
+        for url in ("https://K.example/\u212a?q=\u212a#\u212a", "https://[2001:db8::1]/\u212a"):
+            self.assertEqual(self.run_audit(url)["status"], "pass")
+        r = self.run_audit("https://\u212a:private@example.com/")
+        self.assertEqual(self.codes(r), ["userinfo_present"])
+        self.assertNotIn("private", json.dumps(r))
+    def test_unicode_hostname_cli_finding(self):
+        r = self.cli(json.dumps({"urls": ["https://\u212a.example/"]}))
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.codes(json.loads(r.stdout)), ["unicode_idna_mapping"])
     def test_invalid_hosts(self):
         for url in ["https://a_b.example", "https://-bad.example", "https://a..example", "https://xn--.example", "https://%65xample.com", "https://" + "a" * 64 + ".com"]:
             with self.subTest(url=url):
